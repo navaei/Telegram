@@ -30,7 +30,7 @@ android {
 
 
     useLibrary 'org.apache.http.legacy'
-    defaultConfig.applicationId = "org.telegram.messenger"
+    defaultConfig.applicationId = "ir.mnchat.messenger"
 
     sourceSets.main.jniLibs.srcDirs = ['./jni/']
 
@@ -72,7 +72,7 @@ android {
             debuggable true
             jniDebuggable true
             //signingConfig signingConfigs.debug
-            applicationIdSuffix ".beta"
+            //applicationIdSuffix ".beta"
         }
 
         release {
