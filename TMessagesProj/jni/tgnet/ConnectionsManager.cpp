@@ -712,9 +712,9 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
             return;
         }
 
-        if (connection->isMessageIdProcessed(messageId)) {
-            return;
-        }
+//        if (connection->isMessageIdProcessed(messageId)) {
+//            return;
+//        }
 
         uint32_t messageLength = data->readUint32(&error);
         if (error) {
@@ -1386,10 +1386,22 @@ void ConnectionsManager::initDatacenters() {
     if (!testBackend) {
         if (datacenters.find(1) == datacenters.end()) {
             datacenter = new Datacenter(1);
-            datacenter->addAddressAndPort("149.154.175.50", 443, 0);
-            datacenter->addAddressAndPort("2001:b28:f23d:f001:0000:0000:0000:000a", 443, 1);
+            datacenter->addAddressAndPort("192.168.1.71", 5000, 0);
+            //datacenter->addAddressAndPort("::1", 5000, 1);
             datacenters[1] = datacenter;
         }
+        if (datacenters.find(2) == datacenters.end()) {
+            datacenter = new Datacenter(2);
+            datacenter->addAddressAndPort("192.168.1.71", 5000, 0);
+            //datacenter->addAddressAndPort("::1", 5000, 1);
+            datacenters[2] = datacenter;
+        }
+//        if (datacenters.find(1) == datacenters.end()) {
+//            datacenter = new Datacenter(1);
+//            datacenter->addAddressAndPort("149.154.175.50", 443, 0);
+//            datacenter->addAddressAndPort("2001:b28:f23d:f001:0000:0000:0000:000a", 443, 1);
+//            datacenters[1] = datacenter;
+//        }
 
 //        if (datacenters.find(2) == datacenters.end()) {
 //            datacenter = new Datacenter(2);
@@ -1420,18 +1432,24 @@ void ConnectionsManager::initDatacenters() {
 //        }
     } else {
         if (datacenters.find(1) == datacenters.end()) {
-            datacenter = new Datacenter(1);
-            datacenter->addAddressAndPort("149.154.175.40", 443, 0);
-            datacenter->addAddressAndPort("2001:b28:f23d:f001:0000:0000:0000:000e", 443, 1);
+            datacenter = new Datacenter(2);
+            datacenter->addAddressAndPort("192.168.1.71", 5000, 0);
+            //datacenter->addAddressAndPort("::1", 5000, 1);
             datacenters[1] = datacenter;
         }
+//        if (datacenters.find(1) == datacenters.end()) {
+//            datacenter = new Datacenter(1);
+//            datacenter->addAddressAndPort("149.154.175.40", 443, 0);
+//            datacenter->addAddressAndPort("2001:b28:f23d:f001:0000:0000:0000:000e", 443, 1);
+//            datacenters[1] = datacenter;
+//        }
 
-        if (datacenters.find(2) == datacenters.end()) {
-            datacenter = new Datacenter(2);
-            datacenter->addAddressAndPort("149.154.167.40", 443, 0);
-            datacenter->addAddressAndPort("2001:67c:4e8:f002:0000:0000:0000:000e", 443, 1);
-            datacenters[2] = datacenter;
-        }
+//        if (datacenters.find(2) == datacenters.end()) {
+//            datacenter = new Datacenter(2);
+//            datacenter->addAddressAndPort("149.154.167.40", 443, 0);
+//            datacenter->addAddressAndPort("2001:67c:4e8:f002:0000:0000:0000:000e", 443, 1);
+//            datacenters[2] = datacenter;
+//        }
 
 //        if (datacenters.find(3) == datacenters.end()) {
 //            datacenter = new Datacenter(3);

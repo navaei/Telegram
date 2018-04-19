@@ -68,7 +68,7 @@
         <receiver
             tools:replace="android:enabled"
             android:name="com.google.android.gms.measurement.AppMeasurementReceiver"
-            android:enabled="false">
+            android:enabled="true">
             <intent-filter>
                 <action android:name="com.google.android.gms.measurement.UPLOAD" />
             </intent-filter>
@@ -77,7 +77,7 @@
         <service
             tools:replace="android:enabled"
             android:name="com.google.android.gms.measurement.AppMeasurementService"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="false" />
 
     </application>
