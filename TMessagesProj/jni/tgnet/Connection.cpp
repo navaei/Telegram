@@ -117,6 +117,9 @@ void Connection::onReceivedData(NativeByteBuffer *buffer) {
         buffer->rewind();
 
         uint32_t currentPacketLength = buffer->readUint32(nullptr)-12;
+        //TODO must delete
+        //if(currentPacketLength>4000)
+            //return;
         uint32_t sequenceFromServer = buffer->readUint32(nullptr);
 
 

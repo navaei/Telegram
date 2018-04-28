@@ -712,9 +712,9 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
             return;
         }
 
-//        if (connection->isMessageIdProcessed(messageId)) {
-//            return;
-//        }
+        if (connection->isMessageIdProcessed(messageId)) {
+            return;
+        }
 
         uint32_t messageLength = data->readUint32(&error);
         if (error) {
@@ -752,7 +752,9 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
     } else {
         if (length < 24 + 32 || (length - 24) % 16 != 0 || !datacenter->decryptServerResponse(keyId, data->bytes() + mark + 8, data->bytes() + mark + 24, length - 24)) {
             DEBUG_E("connection(%p) unable to decrypt server response", connection);
+            //TODO undo comment
             connection->reconnect();
+            //connection->closeSocket(0);
             return;
         }
         data->position(mark + 24);
@@ -770,7 +772,7 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
         int64_t messageId = data->readInt64(&error);
         int32_t messageSeqNo = data->readInt32(&error);
         uint32_t messageLength = data->readUint32(&error);
-
+        //TODO undo comment
         if (connection->isMessageIdProcessed(messageId)) {
             doNotProcess = true;
         }

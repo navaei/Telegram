@@ -1436,8 +1436,8 @@ void Datacenter::processHandshakeResponse(TLObject *message, int64_t messageId) 
             beginHandshake(false);
             return;
         }
-
-        sendAckRequest(messageId);
+        //TODO undo comment!
+        //sendAckRequest(messageId);
 
         uint32_t authKeyAuxHashLength = authNewNonce->length + SHA_DIGEST_LENGTH + 1;
         NativeByteBuffer *authKeyAuxHashBuffer = BuffersStorage::getInstance().getFreeBuffer(authKeyAuxHashLength + SHA_DIGEST_LENGTH);
@@ -1448,7 +1448,7 @@ void Datacenter::processHandshakeResponse(TLObject *message, int64_t messageId) 
             authKeyAuxHashBuffer->writeByte(1);
             SHA1(authKeyAuxHashBuffer->bytes(), authKeyAuxHashLength - 12, authKeyAuxHashBuffer->bytes() + authKeyAuxHashLength);
             //TODO remove false condition
-            if (false && memcmp(result->new_nonce_hash1->bytes, authKeyAuxHashBuffer->bytes() + authKeyAuxHashLength + SHA_DIGEST_LENGTH - 16, 16)) {
+            if (memcmp(result->new_nonce_hash1->bytes, authKeyAuxHashBuffer->bytes() + authKeyAuxHashLength + SHA_DIGEST_LENGTH - 16, 16)) {
                 DEBUG_E("dc%u handshake: invalid DH answer nonce hash 1", datacenterId);
                 authKeyAuxHashBuffer->reuse();
                 beginHandshake(false);
