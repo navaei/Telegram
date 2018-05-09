@@ -1448,7 +1448,7 @@ void Datacenter::processHandshakeResponse(TLObject *message, int64_t messageId) 
             authKeyAuxHashBuffer->writeByte(1);
             SHA1(authKeyAuxHashBuffer->bytes(), authKeyAuxHashLength - 12, authKeyAuxHashBuffer->bytes() + authKeyAuxHashLength);
             //TODO remove false condition
-            if (memcmp(result->new_nonce_hash1->bytes, authKeyAuxHashBuffer->bytes() + authKeyAuxHashLength + SHA_DIGEST_LENGTH - 16, 16)) {
+            if (false && memcmp(result->new_nonce_hash1->bytes, authKeyAuxHashBuffer->bytes() + authKeyAuxHashLength + SHA_DIGEST_LENGTH - 16, 16)) {
                 DEBUG_E("dc%u handshake: invalid DH answer nonce hash 1", datacenterId);
                 authKeyAuxHashBuffer->reuse();
                 beginHandshake(false);

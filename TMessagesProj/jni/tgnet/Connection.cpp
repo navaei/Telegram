@@ -114,14 +114,69 @@ void Connection::onReceivedData(NativeByteBuffer *buffer) {
         hasSomeDataSinceLastConnect = true;
 
         //TODO must delete
-        buffer->rewind();
-
+        //buffer->rewind();
         uint32_t currentPacketLength = buffer->readUint32(nullptr)-12;
-        //TODO must delete
-        //if(currentPacketLength>4000)
-            //return;
         uint32_t sequenceFromServer = buffer->readUint32(nullptr);
 
+//        uint32_t currentPacketLength = 0;
+//        uint32_t mark = buffer->position();
+//        uint8_t fByte = buffer->readByte(nullptr);
+//
+//        if (fByte != 0x7f) {
+//            currentPacketLength = ((uint32_t) fByte) * 4;
+//        } else {
+//            buffer->position(mark);
+//            if (buffer->remaining() < 4) {
+//                if (restOfTheData == nullptr || (restOfTheData != nullptr && restOfTheData->position() != 0)) {
+//                    NativeByteBuffer *reuseLater = restOfTheData;
+//                    restOfTheData = BuffersStorage::getInstance().getFreeBuffer(16384);
+//                    restOfTheData->writeBytes(buffer);
+//                    restOfTheData->limit(restOfTheData->position());
+//                    lastPacketLength = 0;
+//                    if (reuseLater != nullptr) {
+//                        reuseLater->reuse();
+//                    }
+//                } else {
+//                    restOfTheData->position(restOfTheData->limit());
+//                }
+//                break;
+//            }
+//            currentPacketLength = ((uint32_t) buffer->readInt32(nullptr) >> 8) * 4;
+//        }
+//
+//        if (currentPacketLength % 4 != 0 || currentPacketLength > 2 * 1024 * 1024) {
+//            DEBUG_E("connection(%p, dc%u, type %d) received invalid packet length", this, currentDatacenter->getDatacenterId(), connectionType);
+//            reconnect();
+//            return;
+//        }
+//
+//        if (currentPacketLength < buffer->remaining()) {
+//            DEBUG_E("connection(%p, dc%u, type %d) received message len %u but packet larger %u", this, currentDatacenter->getDatacenterId(), connectionType, currentPacketLength, buffer->remaining());
+//        } else if (currentPacketLength == buffer->remaining()) {
+//            DEBUG_E("connection(%p, dc%u, type %d) received message len %u equal to packet size", this, currentDatacenter->getDatacenterId(), connectionType, currentPacketLength);
+//        } else {
+//            DEBUG_E("connection(%p, dc%u, type %d) received packet size less(%u) then message size(%u)", this, currentDatacenter->getDatacenterId(), connectionType, buffer->remaining(), currentPacketLength);
+//
+//            NativeByteBuffer *reuseLater = nullptr;
+//            uint32_t len = currentPacketLength + (fByte != 0x7f ? 1 : 4);
+//            if (restOfTheData != nullptr && restOfTheData->capacity() < len) {
+//                reuseLater = restOfTheData;
+//                restOfTheData = nullptr;
+//            }
+//            if (restOfTheData == nullptr) {
+//                buffer->position(mark);
+//                restOfTheData = BuffersStorage::getInstance().getFreeBuffer(len);
+//                restOfTheData->writeBytes(buffer);
+//            } else {
+//                restOfTheData->position(restOfTheData->limit());
+//                restOfTheData->limit(len);
+//            }
+//            lastPacketLength = len;
+//            if (reuseLater != nullptr) {
+//                reuseLater->reuse();
+//            }
+//            return;
+//        }
 
         uint32_t old = buffer->limit();
         buffer->limit(buffer->position() + currentPacketLength);
