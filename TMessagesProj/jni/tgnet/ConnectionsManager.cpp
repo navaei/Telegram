@@ -753,9 +753,9 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
         if (length < 24 + 32 || (length - 24) % 16 != 0 || !datacenter->decryptServerResponse(keyId, data->bytes() + mark + 8, data->bytes() + mark + 24, length - 24)) {
             DEBUG_E("connection(%p) unable to decrypt server response", connection);
             //TODO undo comment
-            //connection->reconnect();
-            //return;
-            int newlen = length - 24;
+            connection->reconnect();
+            return;
+            //int newlen = length - 24;
         }
         data->position(mark + 24);
 

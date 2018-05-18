@@ -114,7 +114,6 @@ void Connection::onReceivedData(NativeByteBuffer *buffer) {
         hasSomeDataSinceLastConnect = true;
 
         //TODO must delete
-        //buffer->rewind();
         uint32_t currentPacketLength = buffer->readUint32(nullptr)-12;
         uint32_t sequenceFromServer = buffer->readUint32(nullptr);
 
