@@ -30,7 +30,7 @@ android {
 
 
     useLibrary 'org.apache.http.legacy'
-    defaultConfig.applicationId = "ir.mnchat.messenger"
+    defaultConfig.applicationId = "ir.chatzy.messenger"
 
     sourceSets.main.jniLibs.srcDirs = ['./jni/']
 

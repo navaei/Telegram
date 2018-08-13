@@ -678,7 +678,7 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
     if (length == 4) {
         int32_t code = data->readInt32(&error);
         Datacenter *datacenter = connection->getDatacenter();
-        if (code == -404 ) {//&& datacenter->isCdnDatacenter
+        if (code == -404) {//code == -404 && datacenter->isCdnDatacenter
             datacenter->clear();
             DEBUG_D("connection(%p, dc%u, type %d) reset auth key duo to -404 error", connection, datacenter->getDatacenterId(), connection->getConnectionType());
         } else {
@@ -750,13 +750,11 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
             delete object;
         }
     } else {
-        if (length < 24 + 32 || (length - 24) % 16 != 0 || !datacenter->decryptServerResponse(keyId, data->bytes() + mark + 8, data->bytes() + mark + 24, length - 24)) {
-            DEBUG_E("connection(%p) unable to decrypt server response", connection);
-            //TODO undo comment
-            connection->reconnect();
-            return;
-            //int newlen = length - 24;
-        }
+//        if (length < 24 + 32 || (length - 24) % 16 != 0 || !datacenter->decryptServerResponse(keyId, data->bytes() + mark + 8, data->bytes() + mark + 24, length - 24)) {
+//            DEBUG_E("connection(%p) unable to decrypt server response", connection);
+//            connection->reconnect();
+//            return;
+//        }
         data->position(mark + 24);
 
         int64_t messageServerSalt = data->readInt64(&error);
@@ -971,7 +969,7 @@ void ConnectionsManager::processServerResponse(TLObject *message, int64_t messag
             DEBUG_E("connection(%p, dc%u, type %d) rpc error %d: %s", connection, datacenter->getDatacenterId(), connection->getConnectionType(), error->error_code, error->error_message.c_str());
             if (error->error_code == 303) {
                 uint32_t migrateToDatacenterId = DEFAULT_DATACENTER_ID;
-                
+
                 static std::vector<std::string> migrateErrors;
                 if (migrateErrors.empty()) {
                     migrateErrors.push_back("NETWORK_MIGRATE_");
@@ -988,7 +986,7 @@ void ConnectionsManager::processServerResponse(TLObject *message, int64_t messag
                         migrateToDatacenterId = val;
                     }
                 }
-                
+
                 if (migrateToDatacenterId != DEFAULT_DATACENTER_ID) {
                     ignoreResult = true;
                     moveToDatacenter(migrateToDatacenterId);
@@ -1385,19 +1383,38 @@ bool ConnectionsManager::isIpv6Enabled() {
 
 void ConnectionsManager::initDatacenters() {
     Datacenter *datacenter;
+    std::string mn_address("192.168.1.71");
+    //std::string mn_address("88.198.61.220");
+
     if (!testBackend) {
-        if (datacenters.find(1) == datacenters.end()) {
-            datacenter = new Datacenter(1);
-            datacenter->addAddressAndPort("192.168.1.71", 5000, 0);
-            //datacenter->addAddressAndPort("::1", 5000, 1);
-            datacenters[1] = datacenter;
-        }
+//        if (datacenters.find(1) == datacenters.end()) {
+//            datacenter = new Datacenter(1);
+//            datacenter->addAddressAndPort(mn_address, 5000, 0);
+//            datacenters[1] = datacenter;
+//        }
         if (datacenters.find(2) == datacenters.end()) {
             datacenter = new Datacenter(2);
-            datacenter->addAddressAndPort("192.168.1.71", 5000, 0);
-            //datacenter->addAddressAndPort("::1", 5000, 1);
+            datacenter->addAddressAndPort(mn_address, 5000, 0);
             datacenters[2] = datacenter;
         }
+//        if (datacenters.find(3) == datacenters.end()) {
+//            datacenter = new Datacenter(3);
+//            datacenter->addAddressAndPort(mn_address, 5000, 0);
+//            datacenters[3] = datacenter;
+//        }
+//        if (datacenters.find(4) == datacenters.end()) {
+//            datacenter = new Datacenter(4);
+//            datacenter->addAddressAndPort(mn_address, 5000, 0);
+//            datacenters[4] = datacenter;
+//        }
+//        if (datacenters.find(5) == datacenters.end()) {
+//            datacenter = new Datacenter(5);
+//            datacenter->addAddressAndPort(mn_address, 5000, 0);
+//            datacenters[5] = datacenter;
+//        }
+
+
+
 //        if (datacenters.find(1) == datacenters.end()) {
 //            datacenter = new Datacenter(1);
 //            datacenter->addAddressAndPort("149.154.175.50", 443, 0);
@@ -1435,7 +1452,7 @@ void ConnectionsManager::initDatacenters() {
     } else {
         if (datacenters.find(1) == datacenters.end()) {
             datacenter = new Datacenter(2);
-            datacenter->addAddressAndPort("192.168.1.71", 5000, 0);
+            datacenter->addAddressAndPort(mn_address, 5000, 0);
             //datacenter->addAddressAndPort("::1", 5000, 1);
             datacenters[1] = datacenter;
         }
@@ -1927,7 +1944,7 @@ void ConnectionsManager::processRequestQueue(uint32_t connectionTypes, uint32_t 
         }
 
         uint32_t requestConnectionType = request->connectionType & 0x0000ffff;
-        
+
         bool forceThisRequest = (connectionTypes & requestConnectionType) && requestDatacenter->getDatacenterId() == dc;
 
         if (typeInfo == typeid(TL_get_future_salts) || typeInfo == typeid(TL_destroy_session)) {
@@ -2655,7 +2672,7 @@ void ConnectionsManager::init(uint32_t version, int32_t layer, int32_t apiId, st
     if (!currentConfigPath.empty() && currentConfigPath.find_last_of('/') != currentConfigPath.size() - 1) {
         currentConfigPath += "/";
     }
-    
+
     if (!logPath.empty()) {
         FileLog::init(logPath);
     }

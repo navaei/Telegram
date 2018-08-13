@@ -963,7 +963,7 @@
 
 일반적인 문제와 해결방법에 대해서는 <![CDATA[<a href=\"https://telegram.org/faq#general\"> \'자주 묻는 질문\'</a>]]>을 확인해보세요: 여기에는 잦은 질문에 대한 답과 <![CDATA[<a href=\"https://telegram.org/faq#troubleshooting\">문제해결</a>]]>을 위한 중요한 팁이 있습니다.</string>
     <string name="AskButton">봉사자에게 질문</string>
-    <string name="TelegramFAQ">MnChat FAQ</string>
+    <string name="TelegramFAQ">ChatZy FAQ</string>
     <string name="TelegramFaq">자주 묻는 질문</string>
     <string name="TelegramFaqUrl">https://telegram.org/faq/ko</string>
     <string name="PrivacyPolicy">개인 정보 정책</string>

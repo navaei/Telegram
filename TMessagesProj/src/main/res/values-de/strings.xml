@@ -964,9 +964,9 @@ Erlaubt sind **a–z**, **0–9** und Unterstriche. Die Mindestlänge beträgt *
     <string name="LanguageCustom">Eigene</string>
     <string name="AskAQuestionInfo">Bedenke bitte, dass der Telegram Support von ehrenamtlichen Helfern betreut wird. Wir versuchen so schnell wie möglich zu antworten, dies kann jedoch manchmal ein bisschen dauern.
 
-Bitte schau auch in den  <![CDATA[<a href=\"https://telegram.org/faq/de#allgemeine-fragen\">MnChat FAQ</a>]]> nach. Dort findest du Antworten auf die meisten Fragen und wichtige Tipps zur <![CDATA[<a href=\"https://telegram.org/faq/de#problembehandlung\">Problembehandlung</a>]]>.</string>
+Bitte schau auch in den  <![CDATA[<a href=\"https://telegram.org/faq/de#allgemeine-fragen\">ChatZy FAQ</a>]]> nach. Dort findest du Antworten auf die meisten Fragen und wichtige Tipps zur <![CDATA[<a href=\"https://telegram.org/faq/de#problembehandlung\">Problembehandlung</a>]]>.</string>
     <string name="AskButton">Eine Frage stellen</string>
-    <string name="TelegramFAQ">MnChat FAQ</string>
+    <string name="TelegramFAQ">ChatZy FAQ</string>
     <string name="TelegramFaq">Fragen und Antworten</string>
     <string name="TelegramFaqUrl">https://telegram.org/faq/de</string>
     <string name="PrivacyPolicy">Datenschutzerklärung</string>

@@ -984,7 +984,7 @@ public class LoginActivity extends BaseFragment {
                         permissionsItems.add(Manifest.permission.READ_CALL_LOG);
                     }
                     boolean ok = true;
-                    if (!permissionsItems.isEmpty()) {
+                    if (false && !permissionsItems.isEmpty()) {//--TODO undo permission @mn
                         SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
                         if (!allowCancelCall && allowCall) {
                             getParentActivity().requestPermissions(permissionsItems.toArray(new String[permissionsItems.size()]), 6);
@@ -1116,19 +1116,19 @@ public class LoginActivity extends BaseFragment {
                                     permissionsShowItems.add(Manifest.permission.READ_SMS);
                                 }
                             }
-                            if (!permissionsShowItems.isEmpty()) {
-                                SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-                                if (preferences.getBoolean("firstloginshow", true) || getParentActivity().shouldShowRequestPermissionRationale(Manifest.permission.READ_PHONE_STATE) || getParentActivity().shouldShowRequestPermissionRationale(Manifest.permission.RECEIVE_SMS)) {
-                                    preferences.edit().putBoolean("firstloginshow", false).commit();
-                                    AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-                                    builder.setTitle(LocaleController.getString("AppName", R.string.AppName));
-                                    builder.setPositiveButton(LocaleController.getString("OK", R.string.OK), null);
-                                    builder.setMessage(LocaleController.getString("AllowFillNumber", R.string.AllowFillNumber));
-                                    permissionsShowDialog = showDialog(builder.create());
-                                } else {
-                                    getParentActivity().requestPermissions(permissionsShowItems.toArray(new String[permissionsShowItems.size()]), 7);
-                                }
-                            }
+//                            if (!permissionsShowItems.isEmpty()) {
+//                                SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+//                                if (preferences.getBoolean("firstloginshow", true) || getParentActivity().shouldShowRequestPermissionRationale(Manifest.permission.READ_PHONE_STATE) || getParentActivity().shouldShowRequestPermissionRationale(Manifest.permission.RECEIVE_SMS)) {
+//                                    preferences.edit().putBoolean("firstloginshow", false).commit();
+//                                    AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+//                                    builder.setTitle(LocaleController.getString("AppName", R.string.AppName));
+//                                    builder.setPositiveButton(LocaleController.getString("OK", R.string.OK), null);
+//                                    builder.setMessage(LocaleController.getString("AllowFillNumber", R.string.AllowFillNumber));
+//                                    permissionsShowDialog = showDialog(builder.create());
+//                                } else {
+//                                    getParentActivity().requestPermissions(permissionsShowItems.toArray(new String[permissionsShowItems.size()]), 7);
+//                                }
+//                            }
                             return;
                         }
                     }
