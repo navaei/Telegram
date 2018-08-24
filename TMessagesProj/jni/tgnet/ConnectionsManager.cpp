@@ -750,11 +750,11 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
             delete object;
         }
     } else {
-//        if (length < 24 + 32 || (length - 24) % 16 != 0 || !datacenter->decryptServerResponse(keyId, data->bytes() + mark + 8, data->bytes() + mark + 24, length - 24)) {
-//            DEBUG_E("connection(%p) unable to decrypt server response", connection);
-//            connection->reconnect();
-//            return;
-//        }
+        if (length < 24 + 32 || (length - 24) % 16 != 0 || !datacenter->decryptServerResponse(keyId, data->bytes() + mark + 8, data->bytes() + mark + 24, length - 24)) {
+            DEBUG_E("connection(%p) unable to decrypt server response", connection);
+            connection->reconnect();
+            return;
+        }
         data->position(mark + 24);
 
         int64_t messageServerSalt = data->readInt64(&error);

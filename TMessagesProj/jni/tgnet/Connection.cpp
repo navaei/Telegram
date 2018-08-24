@@ -114,14 +114,13 @@ void Connection::onReceivedData(NativeByteBuffer *buffer) {
         hasSomeDataSinceLastConnect = true;
 
         //TODO must delete
-        uint32_t currentPacketLength = buffer->readUint32(nullptr)-12;
-        uint32_t sequenceFromServer = buffer->readUint32(nullptr);
-        if (currentPacketLength + 4 < buffer->remaining()) {
-            int len = currentPacketLength;
-            int remaning = buffer->remaining();
-        }
+//        uint32_t currentPacketLength = buffer->readUint32(nullptr)-12;
+//        uint32_t sequenceFromServer = buffer->readUint32(nullptr);
+//        if (currentPacketLength + 4 < buffer->remaining()) {
+//            int len = currentPacketLength;
+//            int remaning = buffer->remaining();
+//        }
 
-        /*
         uint32_t currentPacketLength = 0;
         uint32_t mark = buffer->position();
         uint8_t fByte = buffer->readByte(nullptr);
@@ -199,7 +198,7 @@ void Connection::onReceivedData(NativeByteBuffer *buffer) {
             }
             return;
         }
-*/
+
 
         uint32_t old = buffer->limit();
         buffer->limit(buffer->position() + currentPacketLength);
