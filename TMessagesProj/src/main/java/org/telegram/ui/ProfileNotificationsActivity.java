@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -13,9 +13,9 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.app.Activity;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.drawable.Drawable;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
@@ -36,22 +36,28 @@ import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
+import org.telegram.messenger.NotificationsController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.support.widget.LinearLayoutManager;
 import org.telegram.messenger.support.widget.RecyclerView;
+import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.ActionBar.ThemeDescription;
 import org.telegram.ui.Cells.HeaderCell;
 import org.telegram.ui.Cells.RadioCell;
+import org.telegram.ui.Cells.ShadowSectionCell;
 import org.telegram.ui.Cells.TextCheckBoxCell;
+import org.telegram.ui.Cells.TextCheckCell;
 import org.telegram.ui.Cells.TextColorCell;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Cells.TextInfoPrivacyCell;
 import org.telegram.ui.Cells.TextSettingsCell;
+import org.telegram.ui.Cells2.UserCell;
 import org.telegram.ui.Components.AlertsCreator;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
@@ -66,12 +72,19 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
 
     private long dialog_id;
 
+    private boolean addingException;
+
     private boolean customEnabled;
     private boolean notificationsEnabled;
+
+    private ProfileNotificationsActivityDelegate delegate;
 
     private int customRow;
     private int customInfoRow;
     private int generalRow;
+    private int avatarRow;
+    private int avatarSectionRow;
+    private int enableRow;
     private int soundRow;
     private int vibrateRow;
     private int smartRow;
@@ -90,17 +103,38 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
     private int ledInfoRow;
     private int rowCount;
 
+    private final static int done_button = 1;
+
+    public interface ProfileNotificationsActivityDelegate {
+        void didCreateNewException(NotificationsSettingsActivity.NotificationException exception);
+    }
+
     public ProfileNotificationsActivity(Bundle args) {
         super(args);
         dialog_id = args.getLong("dialog_id");
+        addingException = args.getBoolean("exception", false);
     }
 
     @Override
     public boolean onFragmentCreate() {
         rowCount = 0;
-        customRow = rowCount++;
-        customInfoRow = rowCount++;
+        if (addingException) {
+            avatarRow = rowCount++;
+            avatarSectionRow = rowCount++;
+            customRow = -1;
+            customInfoRow = -1;
+        } else {
+            avatarRow = -1;
+            avatarSectionRow = -1;
+            customRow = rowCount++;
+            customInfoRow = rowCount++;
+        }
         generalRow = rowCount++;
+        if (addingException) {
+            enableRow = rowCount++;
+        } else {
+            enableRow = -1;
+        }
         soundRow = rowCount++;
         vibrateRow = rowCount++;
         if ((int) dialog_id < 0) {
@@ -117,7 +151,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
         boolean isChannel;
         int lower_id = (int) dialog_id;
         if (lower_id < 0) {
-            TLRPC.Chat chat = MessagesController.getInstance().getChat(-lower_id);
+            TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-lower_id);
             isChannel = chat != null && ChatObject.isChannel(chat) && !chat.megagroup;
         } else {
             isChannel = false;
@@ -150,8 +184,8 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
         colorRow = rowCount++;
         ledInfoRow = rowCount++;
 
-        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
-        customEnabled = preferences.getBoolean("custom_" + dialog_id, false);
+        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+        customEnabled = preferences.getBoolean("custom_" + dialog_id, false) || addingException;
 
         boolean hasOverride = preferences.contains("notify2_" + dialog_id);
         int value = preferences.getInt("notify2_" + dialog_id, 0);
@@ -159,11 +193,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
             if (hasOverride) {
                 notificationsEnabled = true;
             } else {
-                if ((int) dialog_id < 0) {
-                    notificationsEnabled = preferences.getBoolean("EnableGroup", true);
-                } else {
-                    notificationsEnabled = preferences.getBoolean("EnableAll", true);
-                }
+                notificationsEnabled = NotificationsController.getInstance(currentAccount).isGlobalNotificationsEnabled(dialog_id);
             }
         } else if (value == 1) {
             notificationsEnabled = true;
@@ -173,33 +203,73 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
             notificationsEnabled = false;
         }
 
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.notificationsSettingsUpdated);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.notificationsSettingsUpdated);
         return super.onFragmentCreate();
     }
 
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.notificationsSettingsUpdated);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.notificationsSettingsUpdated);
     }
 
     @Override
     public View createView(final Context context) {
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
-        actionBar.setTitle(LocaleController.getString("CustomNotifications", R.string.CustomNotifications));
         actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
             @Override
             public void onItemClick(int id) {
                 if (id == -1) {
-                    if (notificationsEnabled && customEnabled) {
-                        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                    if (!addingException && notificationsEnabled && customEnabled) {
+                        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                         preferences.edit().putInt("notify2_" + dialog_id, 0).commit();
                     }
-                    finishFragment();
+                } else if (id == done_button) {
+                    SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+                    SharedPreferences.Editor editor = preferences.edit();
+                    editor.putBoolean("custom_" + dialog_id, true);
+
+
+                    TLRPC.TL_dialog dialog = MessagesController.getInstance(currentAccount).dialogs_dict.get(dialog_id);
+                    if (notificationsEnabled) {
+                        editor.putInt("notify2_" + dialog_id, 0);
+                        MessagesStorage.getInstance(currentAccount).setDialogFlags(dialog_id, 0);
+                        if (dialog != null) {
+                            dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
+                        }
+                    } else {
+                        editor.putInt("notify2_" + dialog_id, 2);
+                        NotificationsController.getInstance(currentAccount).removeNotificationsForDialog(dialog_id);
+                        MessagesStorage.getInstance(currentAccount).setDialogFlags(dialog_id, 1);
+                        if (dialog != null) {
+                            dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
+                            dialog.notify_settings.mute_until = Integer.MAX_VALUE;
+                        }
+                    }
+
+                    editor.commit();
+                    NotificationsController.getInstance(currentAccount).updateServerNotificationsSettings(dialog_id);
+                    if (delegate != null) {
+                        NotificationsSettingsActivity.NotificationException exception = new NotificationsSettingsActivity.NotificationException();
+                        exception.did = dialog_id;
+                        exception.hasCustom = true;
+                        exception.notify = preferences.getInt("notify2_" + dialog_id, 0);
+                        if (exception.notify != 0) {
+                            exception.muteUntil = preferences.getInt("notifyuntil_" + dialog_id, 0);
+                        }
+                        delegate.didCreateNewException(exception);
+                    }
                 }
+                finishFragment();
             }
         });
+        if (addingException) {
+            actionBar.setTitle(LocaleController.getString("NotificationsNewException", R.string.NotificationsNewException));
+            actionBar.createMenu().addItemWithWidth(done_button, R.drawable.ic_done, AndroidUtilities.dp(56));
+        } else {
+            actionBar.setTitle(LocaleController.getString("CustomNotifications", R.string.CustomNotifications));
+        }
 
         fragmentView = new FrameLayout(context);
         FrameLayout frameLayout = (FrameLayout) fragmentView;
@@ -220,7 +290,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
             @Override
             public void onItemClick(View view, int position) {
                 if (position == customRow && view instanceof TextCheckBoxCell) {
-                    SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                    SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                     customEnabled = !customEnabled;
                     notificationsEnabled = customEnabled;
                     preferences.edit().putBoolean("custom_" + dialog_id, customEnabled).commit();
@@ -281,7 +351,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                             tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION);
                             tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
                             tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION));
-                            SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                            SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                             Uri currentSound = null;
 
                             String defaultPath = null;
@@ -310,7 +380,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                             tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_RINGTONE);
                             tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
                             tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE));
-                            SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                            SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                             Uri currentSound = null;
 
                             String defaultPath = null;
@@ -334,30 +404,25 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                             FileLog.e(e);
                         }
                     } else if (position == vibrateRow) {
-                        showDialog(AlertsCreator.createVibrationSelectDialog(getParentActivity(), ProfileNotificationsActivity.this, dialog_id, false, false, new Runnable() {
-                            @Override
-                            public void run() {
-                                if (adapter != null) {
-                                    adapter.notifyItemChanged(vibrateRow);
-                                }
+                        showDialog(AlertsCreator.createVibrationSelectDialog(getParentActivity(), dialog_id, false, false, () -> {
+                            if (adapter != null) {
+                                adapter.notifyItemChanged(vibrateRow);
                             }
                         }));
+                    } else if (position == enableRow) {
+                        TextCheckCell checkCell = (TextCheckCell) view;
+                        notificationsEnabled = !checkCell.isChecked();
+                        checkCell.setChecked(notificationsEnabled);
                     } else if (position == callsVibrateRow) {
-                        showDialog(AlertsCreator.createVibrationSelectDialog(getParentActivity(), ProfileNotificationsActivity.this, dialog_id, "calls_vibrate_", new Runnable() {
-                            @Override
-                            public void run() {
-                                if (adapter != null) {
-                                    adapter.notifyItemChanged(callsVibrateRow);
-                                }
+                        showDialog(AlertsCreator.createVibrationSelectDialog(getParentActivity(), dialog_id, "calls_vibrate_", () -> {
+                            if (adapter != null) {
+                                adapter.notifyItemChanged(callsVibrateRow);
                             }
                         }));
                     } else if (position == priorityRow) {
-                        showDialog(AlertsCreator.createPrioritySelectDialog(getParentActivity(), ProfileNotificationsActivity.this, dialog_id, false, false, new Runnable() {
-                            @Override
-                            public void run() {
-                                if (adapter != null) {
-                                    adapter.notifyItemChanged(priorityRow);
-                                }
+                        showDialog(AlertsCreator.createPrioritySelectDialog(getParentActivity(), dialog_id, -1, () -> {
+                            if (adapter != null) {
+                                adapter.notifyItemChanged(priorityRow);
                             }
                         }));
                     } else if (position == smartRow) {
@@ -365,7 +430,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                             return;
                         }
                         final Context context1 = getParentActivity();
-                        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                         int notifyMaxCount = preferences.getInt("smart_max_count_" + dialog_id, 2);
                         int notifyDelay = preferences.getInt("smart_delay_" + dialog_id, 3 * 60);
                         if (notifyMaxCount == 0) {
@@ -416,53 +481,44 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                             }
                         });
                         list.setPadding(0, AndroidUtilities.dp(12), 0, AndroidUtilities.dp(8));
-                        list.setOnItemClickListener(new RecyclerListView.OnItemClickListener() {
-                            @Override
-                            public void onItemClick(View view, int position) {
-                                if (position < 0 || position >= 100) {
-                                    return;
-                                }
-                                int notifyMaxCount = position % 10 + 1;
-                                int notifyDelay = position / 10 + 1;
-                                SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
-                                preferences.edit().putInt("smart_max_count_" + dialog_id, notifyMaxCount).commit();
-                                preferences.edit().putInt("smart_delay_" + dialog_id, notifyDelay * 60).commit();
-                                if (adapter != null) {
-                                    adapter.notifyItemChanged(smartRow);
-                                }
-                                dismissCurrentDialig();
+                        list.setOnItemClickListener((view1, position1) -> {
+                            if (position1 < 0 || position1 >= 100) {
+                                return;
                             }
+                            int notifyMaxCount1 = position1 % 10 + 1;
+                            int notifyDelay1 = position1 / 10 + 1;
+                            SharedPreferences preferences1 = MessagesController.getNotificationsSettings(currentAccount);
+                            preferences1.edit().putInt("smart_max_count_" + dialog_id, notifyMaxCount1).commit();
+                            preferences1.edit().putInt("smart_delay_" + dialog_id, notifyDelay1 * 60).commit();
+                            if (adapter != null) {
+                                adapter.notifyItemChanged(smartRow);
+                            }
+                            dismissCurrentDialig();
                         });
                         AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
                         builder.setTitle(LocaleController.getString("SmartNotificationsAlert", R.string.SmartNotificationsAlert));
                         builder.setView(list);
                         builder.setPositiveButton(LocaleController.getString("Cancel", R.string.Cancel), null);
-                        builder.setNegativeButton(LocaleController.getString("SmartNotificationsDisabled", R.string.SmartNotificationsDisabled), new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialog, int which) {
-                                SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
-                                preferences.edit().putInt("smart_max_count_" + dialog_id, 0).commit();
-                                if (adapter != null) {
-                                    adapter.notifyItemChanged(smartRow);
-                                }
-                                dismissCurrentDialig();
+                        builder.setNegativeButton(LocaleController.getString("SmartNotificationsDisabled", R.string.SmartNotificationsDisabled), (dialog, which) -> {
+                            SharedPreferences preferences12 = MessagesController.getNotificationsSettings(currentAccount);
+                            preferences12.edit().putInt("smart_max_count_" + dialog_id, 0).commit();
+                            if (adapter != null) {
+                                adapter.notifyItemChanged(smartRow);
                             }
+                            dismissCurrentDialig();
                         });
                         showDialog(builder.create());
                     } else if (position == colorRow) {
                         if (getParentActivity() == null) {
                             return;
                         }
-                        showDialog(AlertsCreator.createColorSelectDialog(getParentActivity(), dialog_id, false, false, new Runnable() {
-                            @Override
-                            public void run() {
-                                if (adapter != null) {
-                                    adapter.notifyItemChanged(colorRow);
-                                }
+                        showDialog(AlertsCreator.createColorSelectDialog(getParentActivity(), dialog_id, -1, () -> {
+                            if (adapter != null) {
+                                adapter.notifyItemChanged(colorRow);
                             }
                         }));
                     } else if (position == popupEnabledRow) {
-                        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                         preferences.edit().putInt("popup_" + dialog_id, 1).commit();
                         ((RadioCell) view).setChecked(true, true);
                         view = listView.findViewWithTag(2);
@@ -470,7 +526,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                             ((RadioCell) view).setChecked(false, true);
                         }
                     } else if (position == popupDisabledRow) {
-                        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                         preferences.edit().putInt("popup_" + dialog_id, 2).commit();
                         ((RadioCell) view).setChecked(true, true);
                         view = listView.findViewWithTag(1);
@@ -513,7 +569,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                 }
             }
 
-            SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+            SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
             SharedPreferences.Editor editor = preferences.edit();
 
             if (requestCode == 12) {
@@ -541,10 +597,14 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
     }
 
     @Override
-    public void didReceivedNotification(int id, Object... args) {
+    public void didReceivedNotification(int id, int account, Object... args) {
         if (id == NotificationCenter.notificationsSettingsUpdated) {
             adapter.notifyDataSetChanged();
         }
+    }
+
+    public void setDelegate(ProfileNotificationsActivityDelegate profileNotificationsActivityDelegate) {
+        delegate = profileNotificationsActivityDelegate;
     }
 
     private class ListAdapter extends RecyclerView.Adapter {
@@ -584,8 +644,19 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                     view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
                     break;
                 case 5:
-                default:
                     view = new TextCheckBoxCell(context);
+                    view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                    break;
+                case 6:
+                    view = new UserCell(context, 4, 0);
+                    view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                    break;
+                case 7:
+                    view = new ShadowSectionCell(context);
+                    break;
+                case 8:
+                default:
+                    view = new TextCheckCell(context);
                     view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
                     break;
             }
@@ -611,7 +682,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                 }
                 case 1: {
                     TextSettingsCell textCell = (TextSettingsCell) holder.itemView;
-                    SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                    SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                     if (position == soundRow) {
                         String value = preferences.getString("sound_" + dialog_id, LocaleController.getString("SoundDefault", R.string.SoundDefault));
                         if (value.equals("NoSound")) {
@@ -623,7 +694,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                         if (value.equals("NoSound")) {
                             value = LocaleController.getString("NoSound", R.string.NoSound);
                         }
-                        textCell.setTextAndValue(LocaleController.getString("VoipSettingsRingtone", R.string.VoipSettingsRingtone), value, true);
+                        textCell.setTextAndValue(LocaleController.getString("VoipSettingsRingtone", R.string.VoipSettingsRingtone), value, false);
                     } else if (position == vibrateRow) {
                         int value = preferences.getInt("vibrate_" + dialog_id, 0);
                         if (value == 0 || value == 4) {
@@ -638,13 +709,15 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                     } else if (position == priorityRow) {
                         int value = preferences.getInt("priority_" + dialog_id, 3);
                         if (value == 0) {
-                            textCell.setTextAndValue(LocaleController.getString("NotificationsPriority", R.string.NotificationsPriority), LocaleController.getString("NotificationsPriorityDefault", R.string.NotificationsPriorityDefault), false);
-                        } else if (value == 1) {
-                            textCell.setTextAndValue(LocaleController.getString("NotificationsPriority", R.string.NotificationsPriority), LocaleController.getString("NotificationsPriorityHigh", R.string.NotificationsPriorityHigh), false);
-                        } else if (value == 2) {
-                            textCell.setTextAndValue(LocaleController.getString("NotificationsPriority", R.string.NotificationsPriority), LocaleController.getString("NotificationsPriorityMax", R.string.NotificationsPriorityMax), false);
+                            textCell.setTextAndValue(LocaleController.getString("NotificationsImportance", R.string.NotificationsImportance), LocaleController.getString("NotificationsPriorityHigh", R.string.NotificationsPriorityHigh), false);
+                        } else if (value == 1 || value == 2) {
+                            textCell.setTextAndValue(LocaleController.getString("NotificationsImportance", R.string.NotificationsImportance), LocaleController.getString("NotificationsPriorityUrgent", R.string.NotificationsPriorityUrgent), false);
                         } else if (value == 3) {
-                            textCell.setTextAndValue(LocaleController.getString("NotificationsPriority", R.string.NotificationsPriority), LocaleController.getString("NotificationsPrioritySettings", R.string.NotificationsPrioritySettings), false);
+                            textCell.setTextAndValue(LocaleController.getString("NotificationsImportance", R.string.NotificationsImportance), LocaleController.getString("NotificationsPrioritySettings", R.string.NotificationsPrioritySettings), false);
+                        } else if (value == 4) {
+                            textCell.setTextAndValue(LocaleController.getString("NotificationsImportance", R.string.NotificationsImportance), LocaleController.getString("NotificationsPriorityLow", R.string.NotificationsPriorityLow), false);
+                        } else if (value == 5) {
+                            textCell.setTextAndValue(LocaleController.getString("NotificationsImportance", R.string.NotificationsImportance), LocaleController.getString("NotificationsPriorityMedium", R.string.NotificationsPriorityMedium), false);
                         }
                     } else if (position == smartRow) {
                         int notifyMaxCount = preferences.getInt("smart_max_count_" + dialog_id, 2);
@@ -695,7 +768,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                 }
                 case 3: {
                     TextColorCell textCell = (TextColorCell) holder.itemView;
-                    SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                    SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                     int color;
                     if (preferences.contains("color_" + dialog_id)) {
                         color = preferences.getInt("color_" + dialog_id, 0xff0000ff);
@@ -717,7 +790,7 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                 }
                 case 4: {
                     RadioCell radioCell = (RadioCell) holder.itemView;
-                    SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                    SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                     int popup = preferences.getInt("popup_" + dialog_id, 0);
                     if (popup == 0) {
                         popup = preferences.getInt((int) dialog_id < 0 ? "popupGroup" : "popupAll", 0);
@@ -738,8 +811,28 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                 }
                 case 5: {
                     TextCheckBoxCell cell = (TextCheckBoxCell) holder.itemView;
-                    SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("Notifications", Activity.MODE_PRIVATE);
+                    SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                     cell.setTextAndCheck(LocaleController.getString("NotificationsEnableCustom", R.string.NotificationsEnableCustom), customEnabled && notificationsEnabled, false);
+                    break;
+                }
+                case 6: {
+                    UserCell userCell = (UserCell) holder.itemView;
+                    int lower_id = (int) dialog_id;
+                    TLObject object;
+                    if (lower_id > 0) {
+                        object = MessagesController.getInstance(currentAccount).getUser(lower_id);
+                    } else {
+                        object = MessagesController.getInstance(currentAccount).getChat(-lower_id);
+                    }
+                    userCell.setData(object, null, null, 0);
+                    break;
+                }
+                case 8: {
+                    TextCheckCell checkCell = (TextCheckCell) holder.itemView;
+                    SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+                    if (position == enableRow) {
+                        checkCell.setTextAndCheck(LocaleController.getString("Notifications", R.string.Notifications), notificationsEnabled, true);
+                    }
                     break;
                 }
             }
@@ -787,6 +880,12 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                 return 4;
             } else if (position == customRow) {
                 return 5;
+            } else if (position == avatarRow) {
+                return 6;
+            } else if (position == avatarSectionRow) {
+                return 7;
+            } else if (position == enableRow) {
+                return 8;
             }
             return 0;
         }
@@ -794,8 +893,20 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
 
     @Override
     public ThemeDescription[] getThemeDescriptions() {
+        ThemeDescription.ThemeDescriptionDelegate cellDelegate = () -> {
+            if (listView != null) {
+                int count = listView.getChildCount();
+                for (int a = 0; a < count; a++) {
+                    View child = listView.getChildAt(a);
+                    if (child instanceof UserCell) {
+                        ((UserCell) child).update(0);
+                    }
+                }
+            }
+        };
+
         return new ThemeDescription[]{
-                new ThemeDescription(listView, ThemeDescription.FLAG_CELLBACKGROUNDCOLOR, new Class[]{HeaderCell.class, TextSettingsCell.class, TextColorCell.class, RadioCell.class, TextCheckBoxCell.class}, null, null, null, Theme.key_windowBackgroundWhite),
+                new ThemeDescription(listView, ThemeDescription.FLAG_CELLBACKGROUNDCOLOR, new Class[]{HeaderCell.class, TextSettingsCell.class, TextColorCell.class, RadioCell.class, UserCell.class, TextCheckCell.class, TextCheckBoxCell.class}, null, null, null, Theme.key_windowBackgroundWhite),
                 new ThemeDescription(fragmentView, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_windowBackgroundGray),
 
                 new ThemeDescription(actionBar, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_actionBarDefault),
@@ -822,6 +933,25 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                 new ThemeDescription(listView, 0, new Class[]{RadioCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
                 new ThemeDescription(listView, ThemeDescription.FLAG_CHECKBOX, new Class[]{RadioCell.class}, new String[]{"radioButton"}, null, null, null, Theme.key_radioBackground),
                 new ThemeDescription(listView, ThemeDescription.FLAG_CHECKBOXCHECK, new Class[]{RadioCell.class}, new String[]{"radioButton"}, null, null, null, Theme.key_radioBackgroundChecked),
+
+                new ThemeDescription(listView, ThemeDescription.FLAG_BACKGROUNDFILTER, new Class[]{ShadowSectionCell.class}, null, null, null, Theme.key_windowBackgroundGrayShadow),
+
+                new ThemeDescription(listView, 0, new Class[]{TextCheckCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
+                new ThemeDescription(listView, 0, new Class[]{TextCheckCell.class}, new String[]{"valueTextView"}, null, null, null, Theme.key_windowBackgroundWhiteGrayText2),
+                new ThemeDescription(listView, 0, new Class[]{TextCheckCell.class}, new String[]{"checkBox"}, null, null, null, Theme.key_switchTrack),
+                new ThemeDescription(listView, 0, new Class[]{TextCheckCell.class}, new String[]{"checkBox"}, null, null, null, Theme.key_switchTrackChecked),
+
+                new ThemeDescription(listView, 0, new Class[]{UserCell.class}, new String[]{"nameTextView"}, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
+                new ThemeDescription(listView, 0, new Class[]{UserCell.class}, new String[]{"statusColor"}, null, null, cellDelegate, Theme.key_windowBackgroundWhiteGrayText),
+                new ThemeDescription(listView, 0, new Class[]{UserCell.class}, new String[]{"statusOnlineColor"}, null, null, cellDelegate, Theme.key_windowBackgroundWhiteBlueText),
+                new ThemeDescription(listView, 0, new Class[]{UserCell.class}, null, new Drawable[]{Theme.avatar_broadcastDrawable, Theme.avatar_savedDrawable}, null, Theme.key_avatar_text),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundRed),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundOrange),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundViolet),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundGreen),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundCyan),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundBlue),
+                new ThemeDescription(null, 0, null, null, null, cellDelegate, Theme.key_avatar_backgroundPink),
 
                 new ThemeDescription(listView, 0, new Class[]{TextCheckBoxCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
                 new ThemeDescription(listView, 0, new Class[]{TextCheckBoxCell.class}, null, null, null, Theme.key_checkboxSquareUnchecked),

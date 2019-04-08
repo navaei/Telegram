@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -26,6 +26,7 @@ import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.R;
+import org.telegram.messenger.browser.Browser;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.messenger.UserConfig;
 import org.telegram.ui.ActionBar.Theme;
@@ -35,15 +36,24 @@ import org.telegram.ui.Components.AvatarDrawable;
 public class ChatActionCell extends BaseCell {
 
     public interface ChatActionCellDelegate {
-        void didClickedImage(ChatActionCell cell);
-        void didLongPressed(ChatActionCell cell);
-        void needOpenUserProfile(int uid);
-        void didPressedBotButton(MessageObject messageObject, TLRPC.KeyboardButton button);
-        void didPressedReplyMessage(ChatActionCell cell, int id);
+        default void didClickedImage(ChatActionCell cell) {
+        }
+
+        default void didLongPressed(ChatActionCell cell) {
+        }
+
+        default void needOpenUserProfile(int uid) {
+        }
+
+        default void didPressedBotButton(MessageObject messageObject, TLRPC.KeyboardButton button) {
+        }
+
+        default void didPressedReplyMessage(ChatActionCell cell, int id) {
+        }
     }
 
     private URLSpan pressedLink;
-
+    private int currentAccount = UserConfig.selectedAccount;
     private ImageReceiver imageReceiver;
     private AvatarDrawable avatarDrawable;
     private StaticLayout textLayout;
@@ -89,12 +99,7 @@ public class ChatActionCell extends BaseCell {
             createLayout(customText, getMeasuredWidth());
             invalidate();
         }
-        AndroidUtilities.runOnUIThread(new Runnable() {
-            @Override
-            public void run() {
-                requestLayout();
-            }
-        });
+        AndroidUtilities.runOnUIThread(this::requestLayout);
     }
 
     public void setMessageObject(MessageObject messageObject) {
@@ -113,23 +118,23 @@ public class ChatActionCell extends BaseCell {
                     id = messageObject.messageOwner.to_id.channel_id;
                 } else {
                     id = messageObject.messageOwner.to_id.user_id;
-                    if (id == UserConfig.getClientUserId()) {
+                    if (id == UserConfig.getInstance(currentAccount).getClientUserId()) {
                         id = messageObject.messageOwner.from_id;
                     }
                 }
             }
             avatarDrawable.setInfo(id, null, null, false);
             if (currentMessageObject.messageOwner.action instanceof TLRPC.TL_messageActionUserUpdatedPhoto) {
-                imageReceiver.setImage(currentMessageObject.messageOwner.action.newUserPhoto.photo_small, "50_50", avatarDrawable, null, 0);
+                imageReceiver.setImage(currentMessageObject.messageOwner.action.newUserPhoto.photo_small, "50_50", avatarDrawable, null, currentMessageObject, 0);
             } else {
                 TLRPC.PhotoSize photo = FileLoader.getClosestPhotoSizeWithSize(currentMessageObject.photoThumbs, AndroidUtilities.dp(64));
                 if (photo != null) {
-                    imageReceiver.setImage(photo.location, "50_50", avatarDrawable, null, 0);
+                    imageReceiver.setImage(photo, "50_50", avatarDrawable, null, currentMessageObject, 0);
                 } else {
                     imageReceiver.setImageBitmap(avatarDrawable);
                 }
             }
-            imageReceiver.setVisible(!PhotoViewer.getInstance().isShowingImage(currentMessageObject), false);
+            imageReceiver.setVisible(!PhotoViewer.isShowingImage(currentMessageObject), false);
         } else {
             imageReceiver.setImageBitmap((Bitmap) null);
         }
@@ -238,6 +243,8 @@ public class ChatActionCell extends BaseCell {
                                             if (gameButton != null) {
                                                 delegate.didPressedBotButton(messageObject, gameButton);
                                             }*/
+                                        } else if (url.startsWith("http")) {
+                                            Browser.openUrl(getContext(), url);
                                         } else {
                                             delegate.needOpenUserProfile(Integer.parseInt(url));
                                         }
@@ -374,6 +381,7 @@ public class ChatActionCell extends BaseCell {
             final int cornerIn = AndroidUtilities.dp(8);
             int y = AndroidUtilities.dp(7);
             int previousLineBottom = 0;
+            int previousLineHeight = 0;
             int dx;
             int dx2;
             int dy;
@@ -485,7 +493,7 @@ public class ChatActionCell extends BaseCell {
                         y -= AndroidUtilities.dp(3);
                         height += AndroidUtilities.dp(3);
 
-                        dy = y + AndroidUtilities.dp(6.2f);
+                        dy = previousLineHeight;
 
                         dx = x - cornerIn;
                         if (drawInnerBottom != 2 && drawInnerBottom != 3) {
@@ -548,6 +556,8 @@ public class ChatActionCell extends BaseCell {
                 }
 
                 y += height;
+
+                previousLineHeight = y + additionalHeight;
             }
 
             canvas.save();

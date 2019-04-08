@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -23,6 +23,7 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.util.LongSparseArray;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -49,11 +50,11 @@ import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SendMessagesHelper;
+import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.support.widget.GridLayoutManager;
 import org.telegram.messenger.support.widget.RecyclerView;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.NativeByteBuffer;
-import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.BottomSheet;
@@ -63,8 +64,6 @@ import org.telegram.ui.DialogsActivity;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -89,7 +88,9 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
     private String sendingText;
     private EmptyTextProgressView searchEmptyView;
     private Drawable shadowDrawable;
-    private HashMap<Long, TLRPC.TL_dialog> selectedDialogs = new HashMap<>();
+    private LongSparseArray<TLRPC.TL_dialog> selectedDialogs = new LongSparseArray<>();
+
+    private int currentAccount = UserConfig.selectedAccount;
 
     private TLRPC.TL_exportedMessageLink exportedMessageLink;
     private boolean loadingLink;
@@ -119,6 +120,7 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
         shadowDrawable = context.getResources().getDrawable(R.drawable.sheet_shadow).mutate();
         shadowDrawable.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_dialogBackground), PorterDuff.Mode.MULTIPLY));
 
+        this.fullscreen = fullScreen;
         linkToCopy = copyLink;
         sendingMessageObjects = messages;
         searchAdapter = new ShareSearchAdapter(context);
@@ -129,24 +131,16 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
             loadingLink = true;
             TLRPC.TL_channels_exportMessageLink req = new TLRPC.TL_channels_exportMessageLink();
             req.id = messages.get(0).getId();
-            req.channel = MessagesController.getInputChannel(messages.get(0).messageOwner.to_id.channel_id);
-            ConnectionsManager.getInstance().sendRequest(req, new RequestDelegate() {
-                @Override
-                public void run(final TLObject response, TLRPC.TL_error error) {
-                    AndroidUtilities.runOnUIThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (response != null) {
-                                exportedMessageLink = (TLRPC.TL_exportedMessageLink) response;
-                                if (copyLinkOnEnd) {
-                                    copyLink(context);
-                                }
-                            }
-                            loadingLink = false;
-                        }
-                    });
+            req.channel = MessagesController.getInstance(currentAccount).getInputChannel(messages.get(0).messageOwner.to_id.channel_id);
+            ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                if (response != null) {
+                    exportedMessageLink = (TLRPC.TL_exportedMessageLink) response;
+                    if (copyLinkOnEnd) {
+                        copyLink(context);
+                    }
                 }
-            });
+                loadingLink = false;
+            }));
         }
 
         containerView = new FrameLayout(context) {
@@ -170,7 +164,7 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
                 int height = MeasureSpec.getSize(heightMeasureSpec);
-                if (Build.VERSION.SDK_INT >= 21) {
+                if (Build.VERSION.SDK_INT >= 21 && !fullScreen) {
                     height -= AndroidUtilities.statusBarHeight;
                 }
                 int size = Math.max(searchAdapter.getItemCount(), listAdapter.getItemCount());
@@ -209,47 +203,41 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
 
         frameLayout = new FrameLayout(context);
         frameLayout.setBackgroundColor(Theme.getColor(Theme.key_dialogBackground));
-        frameLayout.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                return true;
-            }
-        });
+        frameLayout.setOnTouchListener((v, event) -> true);
 
         doneButton = new LinearLayout(context);
         doneButton.setOrientation(LinearLayout.HORIZONTAL);
         doneButton.setBackgroundDrawable(Theme.createSelectorDrawable(Theme.getColor(Theme.key_dialogButtonSelector), 0));
         doneButton.setPadding(AndroidUtilities.dp(21), 0, AndroidUtilities.dp(21), 0);
         frameLayout.addView(doneButton, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.RIGHT));
-        doneButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (selectedDialogs.isEmpty() && (isPublicChannel || linkToCopy != null)) {
-                    if (linkToCopy == null && loadingLink) {
-                        copyLinkOnEnd = true;
-                        Toast.makeText(ShareAlert.this.getContext(), LocaleController.getString("Loading", R.string.Loading), Toast.LENGTH_SHORT).show();
-                    } else {
-                        copyLink(ShareAlert.this.getContext());
-                    }
-                    dismiss();
+        doneButton.setOnClickListener(v -> {
+            if (selectedDialogs.size() == 0 && (isPublicChannel || linkToCopy != null)) {
+                if (linkToCopy == null && loadingLink) {
+                    copyLinkOnEnd = true;
+                    Toast.makeText(ShareAlert.this.getContext(), LocaleController.getString("Loading", R.string.Loading), Toast.LENGTH_SHORT).show();
                 } else {
-                    if (sendingMessageObjects != null) {
-                        for (HashMap.Entry<Long, TLRPC.TL_dialog> entry : selectedDialogs.entrySet()) {
-                            if (frameLayout2.getTag() != null && commentTextView.length() > 0) {
-                                SendMessagesHelper.getInstance().sendMessage(commentTextView.getText().toString(), entry.getKey(), null, null, true, null, null, null);
-                            }
-                            SendMessagesHelper.getInstance().sendMessage(sendingMessageObjects, entry.getKey());
-                        }
-                    } else if (sendingText != null) {
-                        for (HashMap.Entry<Long, TLRPC.TL_dialog> entry : selectedDialogs.entrySet()) {
-                            if (frameLayout2.getTag() != null && commentTextView.length() > 0) {
-                                SendMessagesHelper.getInstance().sendMessage(commentTextView.getText().toString(), entry.getKey(), null, null, true, null, null, null);
-                            }
-                            SendMessagesHelper.getInstance().sendMessage(sendingText, entry.getKey(), null, null, true, null, null, null);
-                        }
-                    }
-                    dismiss();
+                    copyLink(ShareAlert.this.getContext());
                 }
+                dismiss();
+            } else {
+                if (sendingMessageObjects != null) {
+                    for (int a = 0; a < selectedDialogs.size(); a++) {
+                        long key = selectedDialogs.keyAt(a);
+                        if (frameLayout2.getTag() != null && commentTextView.length() > 0) {
+                            SendMessagesHelper.getInstance(currentAccount).sendMessage(commentTextView.getText().toString(), key, null, null, true, null, null, null);
+                        }
+                        SendMessagesHelper.getInstance(currentAccount).sendMessage(sendingMessageObjects, key);
+                    }
+                } else if (sendingText != null) {
+                    for (int a = 0; a < selectedDialogs.size(); a++) {
+                        long key = selectedDialogs.keyAt(a);
+                        if (frameLayout2.getTag() != null && commentTextView.length() > 0) {
+                            SendMessagesHelper.getInstance(currentAccount).sendMessage(commentTextView.getText().toString(), key, null, null, true, null, null, null);
+                        }
+                        SendMessagesHelper.getInstance(currentAccount).sendMessage(sendingText, key, null, null, true, null, null, null);
+                    }
+                }
+                dismiss();
             }
         });
 
@@ -356,31 +344,28 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
         containerView.addView(gridView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT, 0, 48, 0, 0));
         gridView.setAdapter(listAdapter = new ShareDialogsAdapter(context));
         gridView.setGlowColor(Theme.getColor(Theme.key_dialogScrollGlow));
-        gridView.setOnItemClickListener(new RecyclerListView.OnItemClickListener() {
-            @Override
-            public void onItemClick(View view, int position) {
-                if (position < 0) {
-                    return;
-                }
-                TLRPC.TL_dialog dialog;
-                if (gridView.getAdapter() == listAdapter) {
-                    dialog = listAdapter.getItem(position);
-                } else {
-                    dialog = searchAdapter.getItem(position);
-                }
-                if (dialog == null) {
-                    return;
-                }
-                ShareDialogCell cell = (ShareDialogCell) view;
-                if (selectedDialogs.containsKey(dialog.id)) {
-                    selectedDialogs.remove(dialog.id);
-                    cell.setChecked(false, true);
-                } else {
-                    selectedDialogs.put(dialog.id, dialog);
-                    cell.setChecked(true, true);
-                }
-                updateSelectedCount();
+        gridView.setOnItemClickListener((view, position) -> {
+            if (position < 0) {
+                return;
             }
+            TLRPC.TL_dialog dialog;
+            if (gridView.getAdapter() == listAdapter) {
+                dialog = listAdapter.getItem(position);
+            } else {
+                dialog = searchAdapter.getItem(position);
+            }
+            if (dialog == null) {
+                return;
+            }
+            ShareDialogCell cell = (ShareDialogCell) view;
+            if (selectedDialogs.indexOfKey(dialog.id) >= 0) {
+                selectedDialogs.remove(dialog.id);
+                cell.setChecked(false, true);
+            } else {
+                selectedDialogs.put(dialog.id, dialog);
+                cell.setChecked(true, true);
+            }
+            updateSelectedCount();
         });
         gridView.setOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -406,12 +391,7 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
         frameLayout2.setBackgroundColor(Theme.getColor(Theme.key_dialogBackground));
         frameLayout2.setTranslationY(AndroidUtilities.dp(53));
         containerView.addView(frameLayout2, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.LEFT | Gravity.BOTTOM));
-        frameLayout2.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                return true;
-            }
-        });
+        frameLayout2.setOnTouchListener((v, event) -> true);
 
         commentTextView = new EditTextBoldCursor(context);
         commentTextView.setHint(LocaleController.getString("ShareComment", R.string.ShareComment));
@@ -436,13 +416,13 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
 
         updateSelectedCount();
 
-        if (!DialogsActivity.dialogsLoaded) {
-            MessagesController.getInstance().loadDialogs(0, 100, true);
-            ContactsController.getInstance().checkInviteText();
-            DialogsActivity.dialogsLoaded = true;
+        if (!DialogsActivity.dialogsLoaded[currentAccount]) {
+            MessagesController.getInstance(currentAccount).loadDialogs(0, 100, true);
+            ContactsController.getInstance(currentAccount).checkInviteText();
+            DialogsActivity.dialogsLoaded[currentAccount] = true;
         }
         if (listAdapter.dialogs.isEmpty()) {
-            NotificationCenter.getInstance().addObserver(this, NotificationCenter.dialogsNeedReload);
+            NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.dialogsNeedReload);
         }
     }
 
@@ -459,12 +439,12 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
 
 
     @Override
-    public void didReceivedNotification(int id, Object... args) {
+    public void didReceivedNotification(int id, int account, Object... args) {
         if (id == NotificationCenter.dialogsNeedReload) {
             if (listAdapter != null) {
                 listAdapter.fetchDialogs();
             }
-            NotificationCenter.getInstance().removeObserver(this, NotificationCenter.dialogsNeedReload);
+            NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.dialogsNeedReload);
         }
     }
 
@@ -540,7 +520,7 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
     }
 
     public void updateSelectedCount() {
-        if (selectedDialogs.isEmpty()) {
+        if (selectedDialogs.size() == 0) {
             showCommentTextView(false);
             doneButtonBadgeTextView.setVisibility(View.GONE);
             if (!isPublicChannel && linkToCopy == null) {
@@ -566,7 +546,7 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
     @Override
     public void dismiss() {
         super.dismiss();
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.dialogsNeedReload);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.dialogsNeedReload);
     }
 
     private class ShareDialogsAdapter extends RecyclerListView.SelectionAdapter {
@@ -582,15 +562,22 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
 
         public void fetchDialogs() {
             dialogs.clear();
-            for (int a = 0; a < MessagesController.getInstance().dialogsForward.size(); a++) {
-                TLRPC.TL_dialog dialog = MessagesController.getInstance().dialogsForward.get(a);
+            int selfUserId = UserConfig.getInstance(currentAccount).clientUserId;
+            if (!MessagesController.getInstance(currentAccount).dialogsForward.isEmpty()) {
+                dialogs.add(MessagesController.getInstance(currentAccount).dialogsForward.get(0));
+            }
+            for (int a = 0; a < MessagesController.getInstance(currentAccount).dialogs.size(); a++) {
+                TLRPC.TL_dialog dialog = MessagesController.getInstance(currentAccount).dialogs.get(a);
                 int lower_id = (int) dialog.id;
+                if (lower_id == selfUserId) {
+                    continue;
+                }
                 int high_id = (int) (dialog.id >> 32);
                 if (lower_id != 0 && high_id != 1) {
                     if (lower_id > 0) {
                         dialogs.add(dialog);
                     } else {
-                        TLRPC.Chat chat = MessagesController.getInstance().getChat(-lower_id);
+                        TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-lower_id);
                         if (!(chat == null || ChatObject.isNotInChat(chat) || ChatObject.isChannel(chat) && !chat.creator && (chat.admin_rights == null || !chat.admin_rights.post_messages) && !chat.megagroup)) {
                             dialogs.add(dialog);
                         }
@@ -628,7 +615,7 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
         public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
             ShareDialogCell cell = (ShareDialogCell) holder.itemView;
             TLRPC.TL_dialog dialog = getItem(position);
-            cell.setDialog((int) dialog.id, selectedDialogs.containsKey(dialog.id), null);
+            cell.setDialog((int) dialog.id, selectedDialogs.indexOfKey(dialog.id) >= 0, null);
         }
 
         @Override
@@ -659,142 +646,55 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
         }
 
         private void searchDialogsInternal(final String query, final int searchId) {
-            MessagesStorage.getInstance().getStorageQueue().postRunnable(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        String search1 = query.trim().toLowerCase();
-                        if (search1.length() == 0) {
-                            lastSearchId = -1;
-                            updateSearchResults(new ArrayList<DialogSearchResult>(), lastSearchId);
-                            return;
-                        }
-                        String search2 = LocaleController.getInstance().getTranslitString(search1);
-                        if (search1.equals(search2) || search2.length() == 0) {
-                            search2 = null;
-                        }
-                        String search[] = new String[1 + (search2 != null ? 1 : 0)];
-                        search[0] = search1;
-                        if (search2 != null) {
-                            search[1] = search2;
-                        }
+            MessagesStorage.getInstance(currentAccount).getStorageQueue().postRunnable(() -> {
+                try {
+                    String search1 = query.trim().toLowerCase();
+                    if (search1.length() == 0) {
+                        lastSearchId = -1;
+                        updateSearchResults(new ArrayList<>(), lastSearchId);
+                        return;
+                    }
+                    String search2 = LocaleController.getInstance().getTranslitString(search1);
+                    if (search1.equals(search2) || search2.length() == 0) {
+                        search2 = null;
+                    }
+                    String search[] = new String[1 + (search2 != null ? 1 : 0)];
+                    search[0] = search1;
+                    if (search2 != null) {
+                        search[1] = search2;
+                    }
 
-                        ArrayList<Integer> usersToLoad = new ArrayList<>();
-                        ArrayList<Integer> chatsToLoad = new ArrayList<>();
-                        int resultCount = 0;
+                    ArrayList<Integer> usersToLoad = new ArrayList<>();
+                    ArrayList<Integer> chatsToLoad = new ArrayList<>();
+                    int resultCount = 0;
 
-                        HashMap<Long, DialogSearchResult> dialogsResult = new HashMap<>();
-                        SQLiteCursor cursor = MessagesStorage.getInstance().getDatabase().queryFinalized("SELECT did, date FROM dialogs ORDER BY date DESC LIMIT 400");
+                    LongSparseArray<DialogSearchResult> dialogsResult = new LongSparseArray<>();
+                    SQLiteCursor cursor = MessagesStorage.getInstance(currentAccount).getDatabase().queryFinalized("SELECT did, date FROM dialogs ORDER BY date DESC LIMIT 400");
+                    while (cursor.next()) {
+                        long id = cursor.longValue(0);
+                        DialogSearchResult dialogSearchResult = new DialogSearchResult();
+                        dialogSearchResult.date = cursor.intValue(1);
+                        dialogsResult.put(id, dialogSearchResult);
+
+                        int lower_id = (int) id;
+                        int high_id = (int) (id >> 32);
+                        if (lower_id != 0 && high_id != 1) {
+                            if (lower_id > 0) {
+                                if (!usersToLoad.contains(lower_id)) {
+                                    usersToLoad.add(lower_id);
+                                }
+                            } else {
+                                if (!chatsToLoad.contains(-lower_id)) {
+                                    chatsToLoad.add(-lower_id);
+                                }
+                            }
+                        }
+                    }
+                    cursor.dispose();
+
+                    if (!usersToLoad.isEmpty()) {
+                        cursor = MessagesStorage.getInstance(currentAccount).getDatabase().queryFinalized(String.format(Locale.US, "SELECT data, status, name FROM users WHERE uid IN(%s)", TextUtils.join(",", usersToLoad)));
                         while (cursor.next()) {
-                            long id = cursor.longValue(0);
-                            DialogSearchResult dialogSearchResult = new DialogSearchResult();
-                            dialogSearchResult.date = cursor.intValue(1);
-                            dialogsResult.put(id, dialogSearchResult);
-
-                            int lower_id = (int) id;
-                            int high_id = (int) (id >> 32);
-                            if (lower_id != 0 && high_id != 1) {
-                                if (lower_id > 0) {
-                                    if (!usersToLoad.contains(lower_id)) {
-                                        usersToLoad.add(lower_id);
-                                    }
-                                } else {
-                                    if (!chatsToLoad.contains(-lower_id)) {
-                                        chatsToLoad.add(-lower_id);
-                                    }
-                                }
-                            }
-                        }
-                        cursor.dispose();
-
-                        if (!usersToLoad.isEmpty()) {
-                            cursor = MessagesStorage.getInstance().getDatabase().queryFinalized(String.format(Locale.US, "SELECT data, status, name FROM users WHERE uid IN(%s)", TextUtils.join(",", usersToLoad)));
-                            while (cursor.next()) {
-                                String name = cursor.stringValue(2);
-                                String tName = LocaleController.getInstance().getTranslitString(name);
-                                if (name.equals(tName)) {
-                                    tName = null;
-                                }
-                                String username = null;
-                                int usernamePos = name.lastIndexOf(";;;");
-                                if (usernamePos != -1) {
-                                    username = name.substring(usernamePos + 3);
-                                }
-                                int found = 0;
-                                for (String q : search) {
-                                    if (name.startsWith(q) || name.contains(" " + q) || tName != null && (tName.startsWith(q) || tName.contains(" " + q))) {
-                                        found = 1;
-                                    } else if (username != null && username.startsWith(q)) {
-                                        found = 2;
-                                    }
-                                    if (found != 0) {
-                                        NativeByteBuffer data = cursor.byteBufferValue(0);
-                                        if (data != null) {
-                                            TLRPC.User user = TLRPC.User.TLdeserialize(data, data.readInt32(false), false);
-                                            data.reuse();
-                                            DialogSearchResult dialogSearchResult = dialogsResult.get((long) user.id);
-                                            if (user.status != null) {
-                                                user.status.expires = cursor.intValue(1);
-                                            }
-                                            if (found == 1) {
-                                                dialogSearchResult.name = AndroidUtilities.generateSearchName(user.first_name, user.last_name, q);
-                                            } else {
-                                                dialogSearchResult.name = AndroidUtilities.generateSearchName("@" + user.username, null, "@" + q);
-                                            }
-                                            dialogSearchResult.object = user;
-                                            dialogSearchResult.dialog.id = user.id;
-                                            resultCount++;
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                            cursor.dispose();
-                        }
-
-                        if (!chatsToLoad.isEmpty()) {
-                            cursor = MessagesStorage.getInstance().getDatabase().queryFinalized(String.format(Locale.US, "SELECT data, name FROM chats WHERE uid IN(%s)", TextUtils.join(",", chatsToLoad)));
-                            while (cursor.next()) {
-                                String name = cursor.stringValue(1);
-                                String tName = LocaleController.getInstance().getTranslitString(name);
-                                if (name.equals(tName)) {
-                                    tName = null;
-                                }
-                                for (int a = 0; a < search.length; a++) {
-                                    String q = search[a];
-                                    if (name.startsWith(q) || name.contains(" " + q) || tName != null && (tName.startsWith(q) || tName.contains(" " + q))) {
-                                        NativeByteBuffer data = cursor.byteBufferValue(0);
-                                        if (data != null) {
-                                            TLRPC.Chat chat = TLRPC.Chat.TLdeserialize(data, data.readInt32(false), false);
-                                            data.reuse();
-                                            if (!(chat == null || ChatObject.isNotInChat(chat) || ChatObject.isChannel(chat) && !chat.creator && (chat.admin_rights == null || !chat.admin_rights.post_messages) && !chat.megagroup)) {
-                                                DialogSearchResult dialogSearchResult = dialogsResult.get(-(long) chat.id);
-                                                dialogSearchResult.name = AndroidUtilities.generateSearchName(chat.title, null, q);
-                                                dialogSearchResult.object = chat;
-                                                dialogSearchResult.dialog.id = -chat.id;
-                                                resultCount++;
-                                            }
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                            cursor.dispose();
-                        }
-
-                        ArrayList<DialogSearchResult> searchResults = new ArrayList<>(resultCount);
-                        for (DialogSearchResult dialogSearchResult : dialogsResult.values()) {
-                            if (dialogSearchResult.object != null && dialogSearchResult.name != null) {
-                                searchResults.add(dialogSearchResult);
-                            }
-                        }
-
-                        cursor = MessagesStorage.getInstance().getDatabase().queryFinalized("SELECT u.data, u.status, u.name, u.uid FROM users as u INNER JOIN contacts as c ON u.uid = c.uid");
-                        while (cursor.next()) {
-                            int uid = cursor.intValue(3);
-                            if (dialogsResult.containsKey((long) uid)) {
-                                continue;
-                            }
                             String name = cursor.stringValue(2);
                             String tName = LocaleController.getInstance().getTranslitString(name);
                             if (name.equals(tName)) {
@@ -817,73 +717,152 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
                                     if (data != null) {
                                         TLRPC.User user = TLRPC.User.TLdeserialize(data, data.readInt32(false), false);
                                         data.reuse();
-                                        DialogSearchResult dialogSearchResult = new DialogSearchResult();
+                                        DialogSearchResult dialogSearchResult = dialogsResult.get((long) user.id);
                                         if (user.status != null) {
                                             user.status.expires = cursor.intValue(1);
                                         }
-                                        dialogSearchResult.dialog.id = user.id;
-                                        dialogSearchResult.object = user;
                                         if (found == 1) {
                                             dialogSearchResult.name = AndroidUtilities.generateSearchName(user.first_name, user.last_name, q);
                                         } else {
                                             dialogSearchResult.name = AndroidUtilities.generateSearchName("@" + user.username, null, "@" + q);
                                         }
-                                        searchResults.add(dialogSearchResult);
+                                        dialogSearchResult.object = user;
+                                        dialogSearchResult.dialog.id = user.id;
+                                        resultCount++;
                                     }
                                     break;
                                 }
                             }
                         }
                         cursor.dispose();
-
-                        Collections.sort(searchResults, new Comparator<DialogSearchResult>() {
-                            @Override
-                            public int compare(DialogSearchResult lhs, DialogSearchResult rhs) {
-                                if (lhs.date < rhs.date) {
-                                    return 1;
-                                } else if (lhs.date > rhs.date) {
-                                    return -1;
-                                }
-                                return 0;
-                            }
-                        });
-
-                        updateSearchResults(searchResults, searchId);
-                    } catch (Exception e) {
-                        FileLog.e(e);
                     }
+
+                    if (!chatsToLoad.isEmpty()) {
+                        cursor = MessagesStorage.getInstance(currentAccount).getDatabase().queryFinalized(String.format(Locale.US, "SELECT data, name FROM chats WHERE uid IN(%s)", TextUtils.join(",", chatsToLoad)));
+                        while (cursor.next()) {
+                            String name = cursor.stringValue(1);
+                            String tName = LocaleController.getInstance().getTranslitString(name);
+                            if (name.equals(tName)) {
+                                tName = null;
+                            }
+                            for (int a = 0; a < search.length; a++) {
+                                String q = search[a];
+                                if (name.startsWith(q) || name.contains(" " + q) || tName != null && (tName.startsWith(q) || tName.contains(" " + q))) {
+                                    NativeByteBuffer data = cursor.byteBufferValue(0);
+                                    if (data != null) {
+                                        TLRPC.Chat chat = TLRPC.Chat.TLdeserialize(data, data.readInt32(false), false);
+                                        data.reuse();
+                                        if (!(chat == null || ChatObject.isNotInChat(chat) || ChatObject.isChannel(chat) && !chat.creator && (chat.admin_rights == null || !chat.admin_rights.post_messages) && !chat.megagroup)) {
+                                            DialogSearchResult dialogSearchResult = dialogsResult.get(-(long) chat.id);
+                                            dialogSearchResult.name = AndroidUtilities.generateSearchName(chat.title, null, q);
+                                            dialogSearchResult.object = chat;
+                                            dialogSearchResult.dialog.id = -chat.id;
+                                            resultCount++;
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        cursor.dispose();
+                    }
+
+                    ArrayList<DialogSearchResult> searchResults = new ArrayList<>(resultCount);
+                    for (int a = 0; a < dialogsResult.size(); a++) {
+                        DialogSearchResult dialogSearchResult = dialogsResult.valueAt(a);
+                        if (dialogSearchResult.object != null && dialogSearchResult.name != null) {
+                            searchResults.add(dialogSearchResult);
+                        }
+                    }
+
+                    cursor = MessagesStorage.getInstance(currentAccount).getDatabase().queryFinalized("SELECT u.data, u.status, u.name, u.uid FROM users as u INNER JOIN contacts as c ON u.uid = c.uid");
+                    while (cursor.next()) {
+                        int uid = cursor.intValue(3);
+                        if (dialogsResult.indexOfKey((long) uid) >= 0) {
+                            continue;
+                        }
+                        String name = cursor.stringValue(2);
+                        String tName = LocaleController.getInstance().getTranslitString(name);
+                        if (name.equals(tName)) {
+                            tName = null;
+                        }
+                        String username = null;
+                        int usernamePos = name.lastIndexOf(";;;");
+                        if (usernamePos != -1) {
+                            username = name.substring(usernamePos + 3);
+                        }
+                        int found = 0;
+                        for (String q : search) {
+                            if (name.startsWith(q) || name.contains(" " + q) || tName != null && (tName.startsWith(q) || tName.contains(" " + q))) {
+                                found = 1;
+                            } else if (username != null && username.startsWith(q)) {
+                                found = 2;
+                            }
+                            if (found != 0) {
+                                NativeByteBuffer data = cursor.byteBufferValue(0);
+                                if (data != null) {
+                                    TLRPC.User user = TLRPC.User.TLdeserialize(data, data.readInt32(false), false);
+                                    data.reuse();
+                                    DialogSearchResult dialogSearchResult = new DialogSearchResult();
+                                    if (user.status != null) {
+                                        user.status.expires = cursor.intValue(1);
+                                    }
+                                    dialogSearchResult.dialog.id = user.id;
+                                    dialogSearchResult.object = user;
+                                    if (found == 1) {
+                                        dialogSearchResult.name = AndroidUtilities.generateSearchName(user.first_name, user.last_name, q);
+                                    } else {
+                                        dialogSearchResult.name = AndroidUtilities.generateSearchName("@" + user.username, null, "@" + q);
+                                    }
+                                    searchResults.add(dialogSearchResult);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    cursor.dispose();
+
+                    Collections.sort(searchResults, (lhs, rhs) -> {
+                        if (lhs.date < rhs.date) {
+                            return 1;
+                        } else if (lhs.date > rhs.date) {
+                            return -1;
+                        }
+                        return 0;
+                    });
+
+                    updateSearchResults(searchResults, searchId);
+                } catch (Exception e) {
+                    FileLog.e(e);
                 }
             });
         }
 
         private void updateSearchResults(final ArrayList<DialogSearchResult> result, final int searchId) {
-            AndroidUtilities.runOnUIThread(new Runnable() {
-                @Override
-                public void run() {
-                    if (searchId != lastSearchId) {
-                        return;
+            AndroidUtilities.runOnUIThread(() -> {
+                if (searchId != lastSearchId) {
+                    return;
+                }
+                for (int a = 0; a < result.size(); a++) {
+                    DialogSearchResult obj = result.get(a);
+                    if (obj.object instanceof TLRPC.User) {
+                        TLRPC.User user = (TLRPC.User) obj.object;
+                        MessagesController.getInstance(currentAccount).putUser(user, true);
+                    } else if (obj.object instanceof TLRPC.Chat) {
+                        TLRPC.Chat chat = (TLRPC.Chat) obj.object;
+                        MessagesController.getInstance(currentAccount).putChat(chat, true);
                     }
-                    for (int a = 0; a < result.size(); a++) {
-                        DialogSearchResult obj = result.get(a);
-                        if (obj.object instanceof TLRPC.User) {
-                            TLRPC.User user = (TLRPC.User) obj.object;
-                            MessagesController.getInstance().putUser(user, true);
-                        } else if (obj.object instanceof TLRPC.Chat) {
-                            TLRPC.Chat chat = (TLRPC.Chat) obj.object;
-                            MessagesController.getInstance().putChat(chat, true);
-                        }
-                    }
-                    boolean becomeEmpty = !searchResult.isEmpty() && result.isEmpty();
-                    boolean isEmpty = searchResult.isEmpty() && result.isEmpty();
-                    if (becomeEmpty) {
-                        topBeforeSwitch = getCurrentTop();
-                    }
-                    searchResult = result;
-                    notifyDataSetChanged();
-                    if (!isEmpty && !becomeEmpty && topBeforeSwitch > 0) {
-                        layoutManager.scrollToPositionWithOffset(0, -topBeforeSwitch);
-                        topBeforeSwitch = -1000;
-                    }
+                }
+                boolean becomeEmpty = !searchResult.isEmpty() && result.isEmpty();
+                boolean isEmpty = searchResult.isEmpty() && result.isEmpty();
+                if (becomeEmpty) {
+                    topBeforeSwitch = getCurrentTop();
+                }
+                searchResult = result;
+                notifyDataSetChanged();
+                if (!isEmpty && !becomeEmpty && topBeforeSwitch > 0) {
+                    layoutManager.scrollToPositionWithOffset(0, -topBeforeSwitch);
+                    topBeforeSwitch = -1000;
                 }
             });
         }
@@ -957,7 +936,7 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
         public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
             ShareDialogCell cell = (ShareDialogCell) holder.itemView;
             DialogSearchResult result = searchResult.get(position);
-            cell.setDialog((int) result.dialog.id, selectedDialogs.containsKey(result.dialog.id), result.name);
+            cell.setDialog((int) result.dialog.id, selectedDialogs.indexOfKey(result.dialog.id) >= 0, result.name);
         }
 
         @Override

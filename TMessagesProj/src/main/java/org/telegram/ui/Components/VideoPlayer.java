@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -14,38 +14,42 @@ import android.net.Uri;
 import android.os.Handler;
 import android.view.TextureView;
 
-import org.telegram.messenger.exoplayer2.Player;
-import org.telegram.messenger.exoplayer2.source.LoopingMediaSource;
+import com.google.android.exoplayer2.C;
+import com.google.android.exoplayer2.Player;
+import com.google.android.exoplayer2.source.LoopingMediaSource;
+import com.google.android.exoplayer2.DefaultLoadControl;
+import com.google.android.exoplayer2.DefaultRenderersFactory;
+import com.google.android.exoplayer2.ExoPlaybackException;
+import com.google.android.exoplayer2.ExoPlayer;
+import com.google.android.exoplayer2.ExoPlayerFactory;
+import com.google.android.exoplayer2.PlaybackParameters;
+import com.google.android.exoplayer2.SimpleExoPlayer;
+import com.google.android.exoplayer2.Timeline;
+import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
+import com.google.android.exoplayer2.source.ExtractorMediaSource;
+import com.google.android.exoplayer2.source.MediaSource;
+import com.google.android.exoplayer2.source.TrackGroupArray;
+import com.google.android.exoplayer2.source.dash.DashMediaSource;
+import com.google.android.exoplayer2.source.dash.DefaultDashChunkSource;
+import com.google.android.exoplayer2.source.hls.HlsMediaSource;
+import com.google.android.exoplayer2.source.smoothstreaming.DefaultSsChunkSource;
+import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource;
+import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.MappingTrackSelector;
+import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
+import com.google.android.exoplayer2.upstream.DataSource;
+import com.google.android.exoplayer2.upstream.DefaultAllocator;
+import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
+import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
+
+import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.secretmedia.ExtendedDefaultDataSourceFactory;
 import org.telegram.messenger.ApplicationLoader;
-import org.telegram.messenger.exoplayer2.DefaultLoadControl;
-import org.telegram.messenger.exoplayer2.DefaultRenderersFactory;
-import org.telegram.messenger.exoplayer2.ExoPlaybackException;
-import org.telegram.messenger.exoplayer2.ExoPlayer;
-import org.telegram.messenger.exoplayer2.ExoPlayerFactory;
-import org.telegram.messenger.exoplayer2.PlaybackParameters;
-import org.telegram.messenger.exoplayer2.SimpleExoPlayer;
-import org.telegram.messenger.exoplayer2.Timeline;
-import org.telegram.messenger.exoplayer2.extractor.DefaultExtractorsFactory;
-import org.telegram.messenger.exoplayer2.source.ExtractorMediaSource;
-import org.telegram.messenger.exoplayer2.source.MediaSource;
-import org.telegram.messenger.exoplayer2.source.TrackGroupArray;
-import org.telegram.messenger.exoplayer2.source.dash.DashMediaSource;
-import org.telegram.messenger.exoplayer2.source.dash.DefaultDashChunkSource;
-import org.telegram.messenger.exoplayer2.source.hls.HlsMediaSource;
-import org.telegram.messenger.exoplayer2.source.smoothstreaming.DefaultSsChunkSource;
-import org.telegram.messenger.exoplayer2.source.smoothstreaming.SsMediaSource;
-import org.telegram.messenger.exoplayer2.trackselection.AdaptiveTrackSelection;
-import org.telegram.messenger.exoplayer2.trackselection.DefaultTrackSelector;
-import org.telegram.messenger.exoplayer2.trackselection.MappingTrackSelector;
-import org.telegram.messenger.exoplayer2.trackselection.TrackSelection;
-import org.telegram.messenger.exoplayer2.trackselection.TrackSelectionArray;
-import org.telegram.messenger.exoplayer2.upstream.DataSource;
-import org.telegram.messenger.exoplayer2.upstream.DefaultBandwidthMeter;
-import org.telegram.messenger.exoplayer2.upstream.DefaultHttpDataSourceFactory;
 
 @SuppressLint("NewApi")
-public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.VideoListener {
+public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.VideoListener, NotificationCenter.NotificationCenterDelegate {
 
     public interface RendererBuilder {
         void buildRenderers(VideoPlayer player);
@@ -67,6 +71,7 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
     private Handler mainHandler;
     private DataSource.Factory mediaDataSourceFactory;
     private TextureView textureView;
+    private boolean isStreaming;
     private boolean autoplay;
     private boolean mixedAudio;
 
@@ -93,11 +98,30 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
         trackSelector = new DefaultTrackSelector(videoTrackSelectionFactory);
 
         lastReportedPlaybackState = ExoPlayer.STATE_IDLE;
+        NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.playerDidStartPlaying);
+    }
+
+    @Override
+    public void didReceivedNotification(int id, int account, Object... args) {
+        if (id == NotificationCenter.playerDidStartPlaying) {
+            VideoPlayer p = (VideoPlayer) args[0];
+            if (p != this && isPlaying()) {
+                pause();
+            }
+        }
     }
 
     private void ensurePleyaerCreated() {
+        DefaultLoadControl loadControl = new DefaultLoadControl(
+                new DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE),
+                DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+                100,
+                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                DefaultLoadControl.DEFAULT_TARGET_BUFFER_BYTES,
+                DefaultLoadControl.DEFAULT_PRIORITIZE_TIME_OVER_SIZE_THRESHOLDS);
         if (player == null) {
-            player = ExoPlayerFactory.newSimpleInstance(ApplicationLoader.applicationContext, trackSelector, new DefaultLoadControl(), null, DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF);
+            player = ExoPlayerFactory.newSimpleInstance(ApplicationLoader.applicationContext, trackSelector, loadControl, null, DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
             player.addListener(this);
             player.setVideoListener(this);
             player.setVideoTextureView(textureView);
@@ -105,12 +129,8 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
         }
         if (mixedAudio) {
             if (audioPlayer == null) {
-                audioPlayer = ExoPlayerFactory.newSimpleInstance(ApplicationLoader.applicationContext, trackSelector, new DefaultLoadControl(), null, DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF);
+                audioPlayer = ExoPlayerFactory.newSimpleInstance(ApplicationLoader.applicationContext, trackSelector, loadControl, null, DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
                 audioPlayer.addListener(new Player.EventListener() {
-                    @Override
-                    public void onTimelineChanged(Timeline timeline, Object manifest) {
-
-                    }
 
                     @Override
                     public void onTracksChanged(TrackGroupArray trackGroups, TrackSelectionArray trackSelections) {
@@ -119,6 +139,26 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
 
                     @Override
                     public void onLoadingChanged(boolean isLoading) {
+
+                    }
+
+                    @Override
+                    public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
+
+                    }
+
+                    @Override
+                    public void onShuffleModeEnabledChanged(boolean shuffleModeEnabled) {
+
+                    }
+
+                    @Override
+                    public void onPositionDiscontinuity(int reason) {
+
+                    }
+
+                    @Override
+                    public void onSeekProcessed() {
 
                     }
 
@@ -137,11 +177,6 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
 
                     @Override
                     public void onPlayerError(ExoPlaybackException error) {
-
-                    }
-
-                    @Override
-                    public void onPositionDiscontinuity() {
 
                     }
 
@@ -200,6 +235,8 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
     public void preparePlayer(Uri uri, String type) {
         videoPlayerReady = false;
         mixedAudio = false;
+        String scheme = uri.getScheme();
+        isStreaming = scheme != null && !scheme.startsWith("file");
         ensurePleyaerCreated();
         MediaSource mediaSource;
         switch (type) {
@@ -223,15 +260,16 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
         return player != null;
     }
 
-    public void releasePlayer() {
+    public void releasePlayer(boolean async) {
         if (player != null) {
-            player.release();
+            player.release(async);
             player = null;
         }
         if (audioPlayer != null) {
-            audioPlayer.release();
+            audioPlayer.release(async);
             audioPlayer = null;
         }
+        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.playerDidStartPlaying);
     }
 
     public void setTextureView(TextureView texture) {
@@ -243,6 +281,14 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
             return;
         }
         player.setVideoTextureView(textureView);
+    }
+
+    public boolean getPlayWhenReady() {
+        return player.getPlayWhenReady();
+    }
+
+    public int getPlaybackState() {
+        return player.getPlaybackState();
     }
 
     public void play() {
@@ -273,6 +319,12 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
         }
         if (audioPlayer != null) {
             audioPlayer.setPlayWhenReady(false);
+        }
+    }
+
+    public void setPlaybackSpeed(float speed) {
+        if (player != null) {
+            player.setPlaybackParameters(new PlaybackParameters(speed, speed > 1.0f ? 0.98f : 1.0f));
         }
     }
 
@@ -324,6 +376,11 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
 
     }
 
+    @Override
+    public void onSurfaceSizeChanged(int width, int height) {
+
+    }
+
     public void setVolume(float volume) {
         if (player != null) {
             player.setVolume(volume);
@@ -344,11 +401,15 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
     }
 
     public int getBufferedPercentage() {
-        return player != null ? player.getBufferedPercentage() : 0;
+        return isStreaming ? (player != null ? player.getBufferedPercentage() : 0) : 100;
     }
 
     public long getBufferedPosition() {
-        return player != null ? player.getBufferedPosition() : 0;
+        return player != null ? (isStreaming ? player.getBufferedPosition() : player.getDuration()) : 0;
+    }
+
+    public boolean isStreaming() {
+        return isStreaming;
     }
 
     public boolean isPlaying() {
@@ -382,6 +443,9 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
     @Override
     public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
         maybeReportPlayerState();
+        if (playWhenReady && playbackState == Player.STATE_READY) {
+            NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.playerDidStartPlaying, this);
+        }
         if (!videoPlayerReady && playbackState == Player.STATE_READY) {
             videoPlayerReady = true;
             checkPlayersReady();
@@ -389,18 +453,28 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
     }
 
     @Override
-    public void onTimelineChanged(Timeline timeline, Object manifest) {
+    public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
+
+    }
+
+    @Override
+    public void onShuffleModeEnabledChanged(boolean shuffleModeEnabled) {
+
+    }
+
+    @Override
+    public void onPositionDiscontinuity(int reason) {
+
+    }
+
+    @Override
+    public void onSeekProcessed() {
 
     }
 
     @Override
     public void onPlayerError(ExoPlaybackException error) {
         delegate.onError(error);
-    }
-
-    @Override
-    public void onPositionDiscontinuity() {
-
     }
 
     @Override
@@ -434,6 +508,9 @@ public class VideoPlayer implements ExoPlayer.EventListener, SimpleExoPlayer.Vid
     }
 
     private void maybeReportPlayerState() {
+        if (player == null) {
+            return;
+        }
         boolean playWhenReady = player.getPlayWhenReady();
         int playbackState = player.getPlaybackState();
         if (lastReportedPlayWhenReady != playWhenReady || lastReportedPlaybackState != playbackState) {
